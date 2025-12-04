@@ -215,10 +215,9 @@ function doWatchAd() {
     for (let i = 0; i < 3; i++) {
         // 先快速检查是否已经到达目标页面
         if (currentActivity() === ACT_WELFARE) {
-            console.log("已进入福利中心，停止关闭广告");
+            console.log("已进入福利页面，停止关闭广告");
             break;
         }
-
         closeAdByPos();
         sleep(1000);
     }
