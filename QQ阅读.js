@@ -23,7 +23,6 @@ let originalVolume = 0;
 const SIGN_KEYWORDS = ["X", "x", "我知道了", "知道了", "我已知晓"];
 const AD_CLOSE_KEYS = ["关闭", "关闭广告", "跳过", "skip", "Skip", "x", "X", "广告", "close", "知道了"];
 
-
 // =========================================================
 // 工具函数
 // =========================================================
@@ -39,9 +38,10 @@ function clickCenter(obj) {
 }
 
 function findClickText(t, timeout = 1500) {
-    const o = text(t).findOne(timeout);
+    const o = className('android.widget.TextView').text(t).findOne(timeout);
     if (!o) return false;
-    return clickCenter(o);
+    console.log("找到" + t + "，正在执行");
+    return click(o);
 }
 
 function findClickDesc(d, timeout = 1500) {
@@ -50,14 +50,59 @@ function findClickDesc(d, timeout = 1500) {
     return clickCenter(o);
 }
 
-function pickupAndClick(selector) {
-    let o = pickup(selector);
-    if (!o) return false;
-    o.show();
-    sleep(300);
-    clickCenter(o);
-    return true;
+
+function findWatchButton(key ,maxSwipe) {
+    for (let i = 0; i < maxSwipe; i++) {
+
+        let btn = className("android.widget.TextView").text(key).findOne(800);
+        if (btn) return btn;  // 找到了
+        sleep(300);
+        click(btn);
+
+        let bottom = className("android.widget.TextView").text("回到顶部").findOne(500);
+        if (bottom) {
+            console.log("[WATCH] 已到页面底部，停止查找");
+            return null;
+        }
+
+        // 未找到 → 继续向下滑动
+        swipe(device.width / 2, device.height * 0.8,
+              device.width / 2, device.height * 0.3, 400);
+
+        sleep(600);
+    }
+    return null; // 翻到尽头仍旧没有
 }
+
+function scrollToTop(maxTimes = 10) {
+    console.log("[WELFARE] 回滚到页面顶部…");
+
+    let lastTop = -1;
+    for (let i = 0; i < maxTimes; i++) {
+
+
+        let topObj = className("android.widget.TextView").text("规则").depth(12).findOne(500);
+        if (topObj) {
+            let topY = topObj.bounds().top;
+            if (lastTop === topY) {
+                // 已经不能再往下拉，说明到顶部了
+                console.log("[WELFARE] 页面已在顶部");
+                return;
+            }
+            lastTop = topY;
+        }
+
+        // 下滑（往下拉页面，使页面回到顶端）
+        swipe(device.width / 2, device.height * 0.2,
+              device.width / 2, device.height * 0.9, 400);
+
+        sleep(600);
+    }
+
+    console.log("[WELFARE] 已尝试 maxTimes 次回滚，可能已到顶部");
+}
+
+
 
 // =========================================================
 // 音量管理
@@ -103,6 +148,12 @@ function enterBookshelf() {
 
 function enterWelfare() {
     console.log("进入福利中心…");
+
+    if (currentActivity() === ACT_WELFARE) {
+        console.log("当前已在福利中心，无需重复进入");
+        return true;
+    }
+
     enterBookshelf();
 
     const keys = ["赠币", "更多惊喜奖励"];
@@ -112,11 +163,18 @@ function enterWelfare() {
             if (findClickDesc(k, 800)) {
                 console.log("已进入福利中心入口");
                 waitActivity(ACT_WELFARE, 8000);
-                return true;
+                if (currentActivity() === ACT_WELFARE) {
+                    console.log("成功进入福利中心");
+                    return true;
+                } else {
+                    console.log("[WARN] 点击入口后未成功进入福利界面");
+                    return false;
+                }
             }
         }
         sleep(500);
     }
+
     console.log("[WARN] 找不到福利中心入口");
     return false;
 }
@@ -137,18 +195,14 @@ function closeSignPopup() {
 }
 
 function closeAdByPos() {
-    // 起点：id='content' 且 depth=2 的控件
     let current = id('content').depth(2).findOne(5000);
-
     if (!current) {exit();}
 
-    // 从 depth=2 出发，向下走 8 层到 depth=10
-    // path[i] 表示 depth=2+i+1 层控件的 drawingOrder（即子节点的 drawingOrder）
-    const path = [1, 1, 1, 1, 1, 1, 4, 1]; // 8 steps: depth3 → depth10
+    const path = [1, 1, 1, 1, 1, 1, 4, 1];
 
     for (let i = 0; i < path.length; i++) {
         let children = current.children();
-        if (!children || children.empty()) { exit();}
+        if (!children || children.empty()) { exit(); }
         let targetDO = path[i];
         let next = null;
         for (let j = 0; j < children.size(); j++) {
@@ -159,7 +213,7 @@ function closeAdByPos() {
             }
         }
 
-        if (!next) {exit();}
+        if (!next) { exit(); }
 
         current = next;
     }
@@ -168,73 +222,127 @@ function closeAdByPos() {
 }
 
 // =========================================================
-// 广告处理
+// ★★★ 新广告模块（已完全按你的要求替换）
 // =========================================================
-function handleInAppAd() {
-    if (!waitActivity(ACT_INAPP_AD, 3000)) return false;
 
-    console.log("进入内部广告，等待30秒…");
+// 广告激活区
+const AD_ACTIVATE_RECT = {
+    x1: 29,  y1: 1679,
+    x2: 1123, y2: 2309
+};
+
+// ★ 替换后的 clickAdActivate()
+function clickAdActivate() {
+    let x = (AD_ACTIVATE_RECT.x1 + AD_ACTIVATE_RECT.x2) / 2;
+    let y = (AD_ACTIVATE_RECT.y1 + AD_ACTIVATE_RECT.y2) / 2;
+    console.log(`[AD] 点击激活区 (${x}, ${y})`);
+    click(x, y);
+    sleep(800);
+}
+
+// ★ 新增：统一广告判断
+function detectAndHandleAdUnified() {
+    console.log("[AD] 判断广告类型…");
+
+    if (waitActivity(ACT_INAPP_AD, 3000)) {
+        console.log("[AD] 内部广告 ACT_INAPP_AD");
+        return handleAdAndReturn();
+    }
+
+    if (currentPackage() !== PKG) {
+        console.log("[AD] 外部广告（跳转第三方APP）");
+        return handleAdAndReturn();
+    }
+
+    console.warn("[AD] 未识别到广告播放页面");
+    return false;
+}
+
+// ★ 新增：播放等待
+function handleAdAndReturn() {
+    console.log("[AD] 继续广告播放30秒…");
     sleep(AD_WAIT);
+
+    return backToAdAndClose();
+}
+
+// ★ 新增：back → 回 ACT_AD → closeAdByPos
+function backToAdAndClose() {
+    console.log("[AD] 尝试返回 ACT_AD…");
+
+    for (let i = 0; i < 6; i++) {
+        if (currentActivity() === ACT_AD) {
+            console.log("[AD] 已回到 ACT_AD");
+            break;
+        }
+        back();
+        sleep(500);
+    }
+
+    if (currentActivity() !== ACT_AD) {
+        console.log("[AD-WARN] 无法回到 ACT_AD");
+        return false;
+    }
+
+    console.log("[AD] 使用 closeAdByPos() 关闭广告");
+    closeAdByPos();
 
     return true;
 }
 
-function handleExternalAd() {
-    if (currentPackage() !== PKG) {
-        console.log("跳转外部广告，等待30秒…");
-        sleep(AD_WAIT);
-        return true;
-    }
-    return false;
-}
-
 // =========================================================
-// **观看广告任务**
+// ★ 观看广告任务（使用统一广告流程）
 // =========================================================
 function doWatchAd() {
-    console.log("执行观看广告任务…");
+    console.log("开始执行观看广告任务（可重复执行）…");
 
     if (!enterWelfare()) return;
 
-    if (!pickupAndClick(text("去观看"))) {
-        console.log("[WATCH] 找不到去观看");
-        return;
-    }
-
-    sleep(1500);
-
-    // 进入广告页
-    if (!waitActivity(ACT_AD, 6000)) {
-        console.log("[WATCH] 未进入广告页");
-        return;
-    }
-
-    if (!handleInAppAd()) handleExternalAd();
-
-    console.log("尝试关闭广告…");
-    for (let i = 0; i < 3; i++) {
-        // 先快速检查是否已经到达目标页面
-        if (currentActivity() === ACT_WELFARE) {
-            console.log("已进入福利页面，停止关闭广告");
-            break;
+    // 连续执行，直到没有“去观看”
+    while (true) {
+        if(!findClickText("去观看" ,500)){
+            scrollToTop();
+            let btn = findWatchButton("去观看", 8);  // ⭐ 改成使用翻页查找
+            if (!btn) {
+                console.log("[WATCH] 福利中心没有更多“去观看”，退出广告循环");
+                break;
+            }
         }
-        closeAdByPos();
-        sleep(1000);
+
+        sleep(1200);
+
+        // 进入广告壳页
+        if (!waitActivity(ACT_AD, 6000)) {
+            console.log("[WATCH] 点击后未进入广告壳页 ACT_AD，跳过一次");
+            continue;
+        }
+
+        clickAdActivate();
+
+        detectAndHandleAdUnified();
+
+        console.log("[WATCH] 广告一次完成，返回福利中心重新检测…");
+
+        enterWelfare();
+        sleep(1200);
     }
-    console.log("广告任务完成");
+
+    console.log("[WATCH] 所有广告已全部观看完成");
 }
 
+
+
 // =========================================================
-// **听书任务（新增计时循环）**
+// 听书任务
 // =========================================================
 function doListen() {
     console.log("执行听书任务…");
 
     if (!enterWelfare()) return;
 
-    if (!pickupAndClick(text("去听书"))) {
-        console.log("[LISTEN] 找不到 去听书");
-        return;
+    if(!findClickText("去听书" ,500)){
+        scrollToTop();
+        findWatchButton("去听书", 8);
     }
 
     if (!waitActivity(ACT_AUDIO, 8000)) {
@@ -242,7 +350,6 @@ function doListen() {
         return;
     }
 
-    // 进入播放界面
     let play = descContains("播至").findOne(6000);
     if (!play) {
         console.log("[LISTEN] 找不到 播至");
@@ -252,30 +359,25 @@ function doListen() {
     clickCenter(play);
     sleep(2000);
 
-    // ====== ★ 核心新增：听书 30 分钟计时循环 ======
     const TOTAL_MIN = 30;
     for (let m = 1; m <= TOTAL_MIN; m++) {
         console.log(`听书中… ${m}/${TOTAL_MIN} 分钟`);
         sleep(60 * 1000);
     }
 
-    console.log("30 分钟听书完成，返回…");
     back();
-    sleep(2000);
+    sleep(1500);
 
     let cancel = className('android.view.View').desc("取消").findOne(1500);
     if (cancel) cancel.click();
-    sleep(1000);
 
     back();
-    sleep(2000);
+    sleep(1500);
 
     let claim = textContains("领取").findOne(3000);
     if (claim) {
         clickCenter(claim);
         console.log("已领取听书奖励");
-    } else {
-        console.log("[LISTEN] 未找到领取按钮");
     }
 }
 
